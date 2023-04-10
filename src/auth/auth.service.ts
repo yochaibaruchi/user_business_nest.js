@@ -1,75 +1,126 @@
 // src/auth/auth.service.ts
-import { Injectable, UnauthorizedException  } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt'; 
-import { User } from '../user/user.entity'
-import {UserService} from '../user/user.service'
-
+import * as bcrypt from 'bcrypt';
+import { User } from '../user/user.entity';
+import { UserService } from '../user/user.service';
+import { ILoginDto, Ipayload } from './auth.interfaces';
+import { refreshjwtConstants, jwtAccessConstant } from './jwt/constants';
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    private readonly userServise : UserService,
-    private readonly jwtService : JwtService
+    private readonly userService: UserService,
+    private readonly jwtService: JwtService,
   ) {}
-   
-    
-  async generateRefreshToken(user: Omit<User, 'password'>): Promise<string> {
-    const refreshTokenPayload = { sub: user.id, email: user.email, type: 'refresh' };
-    const refreshToken = this.jwtService.sign(refreshTokenPayload, {
-      secret: 'your-refresh-token-secret', // Replace this with a secure secret for refresh tokens
-      expiresIn: '7d', // Set the expiration time for refresh tokens (e.g., 7 days)
-    });
-  
-    return refreshToken;
-  }
 
+  // return refresh token and access token.
 
-  
-//VERIFY TOKEN
-  async verifyToken(token: string): Promise<any> {
-    try {
-      const decoded = await this.jwtService.verify(token);
-      return decoded;
-    } catch (err) {
-      throw new UnauthorizedException('Invalid token');
-    }
-  }
-  
+  async getTokens(
+    payload: Ipayload,
+  ): Promise<{ access_token: string; refresh_token: string }> {
+    const [access_token, refresh_token] = [
+      this.jwtService.sign(payload, {
+        secret: jwtAccessConstant.secret,
+        expiresIn: jwtAccessConstant.exp,
+      }),
+      this.jwtService.sign(
+        { ...payload, type: 'refresh' },
+        {
+          secret: refreshjwtConstants.secret,
+          expiresIn: refreshjwtConstants.exp,
+        },
+      ),
+    ];
 
-  // Other service methods...
-  async validateUser(email: string, password: string):  Promise<Omit<User, 'password' | "hashPassword" > | null> {
-
-    // Find the user by email.
-    email = email.toLowerCase();
-    const user = await this.userServise.findByEmail(email);
-    
-    // If the user is found and the password matches, return the user without the password field.
-    if (user && (await bcrypt.compare(password, user.password))) {
-      const { password, ...result } = user;
-      return result;
-    }
-
-    // If the user is not found or the password doesn't match, return null.
-    return null;
-  }
-
-  async login(user: Omit<User, 'password'>): Promise<{ access_token: string, refresh_token: string }> {
-    const payload = { email: user.email, sub: user.id };
-    const refreshToken = await this.generateRefreshToken(user);
-  
-    // Save the refresh token to the user object in the database
-    user.refreshToken = refreshToken;
-    await this.userRepository.save(user);
-  
     return {
-      access_token: this.jwtService.sign(payload),
-      refresh_token: refreshToken,
+      access_token,
+      refresh_token,
     };
   }
 
+  //validate for jwt
+  async validateUser(id: number): Promise<Omit<User, 'password'> | null> {
+    // Find the user by email.
+    console.log(id);
+    
+    
+    const user = await this.userService.findById(id);
 
+    // If the user is found, return the user without the password field.
+    if (user) {
+      const { password, ...result } = user;
+      return result;
+    }
+    return null;
+  }
+
+  // validate for login.
+  async validateUserInLogin({
+    email,
+    password,
+  }: ILoginDto): Promise<Omit<User, 'password'> | null> {
+    try {
+      // Find the user by email.
+
+      email = email.toLowerCase();
+      const user = await this.userService.findByEmail(email);
+      console.log(user);
+      
+      const compare = await bcrypt.compare(password, user.password);
+      // If the user is found and the password matches, return the user without the password field.
+      if (user && compare) {
+        const { password, ...result } = user;
+
+        return result;
+      }
+
+      // If the user is not found or the password doesn't match, return null.
+      throw new UnauthorizedException();
+    } catch (error) {
+      throw new UnauthorizedException();
+    }
+  }
+
+  async login(
+    user: Omit<User, 'password'>,
+  ): Promise<{ access_token: string; refresh_token: string }> {
+    const payload = { email: user.email, id: user.id };
+
+    const tokens = await this.getTokens(payload);
+
+    // Save the refresh token to the user object in the database
+    user.refreshToken = tokens.refresh_token;
+    await this.userRepository.save(user);
+
+    return {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+    };
+  }
+
+  async logout(userId: number): Promise<void> {
+    // Find the user by their ID
+    console.log(userId + ' services');
+
+    try {
+      const result = await this.userRepository.update(userId, {
+        refreshToken: null,
+      });
+      if (!result.affected) {
+        throw new BadRequestException('requested user to update was not found');
+      }
+    } catch (error) {
+      console.log(error);
+      
+      throw error;
+    }
+  }
 }
