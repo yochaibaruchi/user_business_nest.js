@@ -6,8 +6,9 @@ import { MysqlDatabaseProviderModule } from './providers/database/mysql/provider
 import { HealthCheckController } from './health-check/health-check.controller';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
+import { BusinessModule } from './business/business.module';
 @Module({
-  imports: [MysqlDatabaseProviderModule, TerminusModule,UserModule ,AuthModule],
+  imports: [MysqlDatabaseProviderModule, TerminusModule,UserModule ,AuthModule , BusinessModule],
   controllers: [AppController, HealthCheckController],
   providers: [AppService],
 })
