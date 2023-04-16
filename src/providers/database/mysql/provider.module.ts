@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule, TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import { MysqlConfigModule } from '../../../config/database/mysql/config.module';
 import { MysqlConfigService } from '../../../config/database/mysql/config.service';
-import { User } from 'src/user/user.entity';
+import { User } from 'src/user/entities/user.entity';
 // Define the MysqlDatabaseProviderModule
 @Module({
   imports: [

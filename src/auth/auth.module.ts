@@ -9,7 +9,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt/jwt.strategy';
 import { jwtConstants } from './jwt/constants';
 
-import { User } from 'src/user/user.entity';
+import { User } from 'src/user/entities/user.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 @Module({
   imports: [UserModule, PassportModule, JwtModule.register({

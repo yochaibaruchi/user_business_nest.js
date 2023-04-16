@@ -2,7 +2,7 @@
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { MysqlConfigService } from './config.service';
-import { User } from '../../../user/user.entity';
+import { User } from '../../../user/entities/user.entity';
 import * as dotenv from 'dotenv';
 
 
