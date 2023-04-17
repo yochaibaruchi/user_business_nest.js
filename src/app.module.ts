@@ -8,8 +8,9 @@ import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { BusinessModule } from './business/business.module';
 import { RoleModule } from './role/role.module';
+import { UserBusinessRoleModule } from './user-business-role/user-business-role.module';
 @Module({
-  imports: [MysqlDatabaseProviderModule, TerminusModule,UserModule ,AuthModule , BusinessModule, RoleModule],
+  imports: [MysqlDatabaseProviderModule, TerminusModule,UserModule ,AuthModule , BusinessModule, RoleModule, UserBusinessRoleModule],
   controllers: [AppController, HealthCheckController],
   providers: [AppService],
 })
