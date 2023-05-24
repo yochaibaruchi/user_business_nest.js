@@ -6,8 +6,7 @@ import { MysqlConfigService } from '../../../config/database/mysql/config.servic
 import { User } from 'src/user/entities/user.entity';
 import { Role } from 'src/role/entities/role.entity';
 import { Business } from 'src/business/entities/business.entity';
-import { UserBusinessRole } from 'src/user-business-role/entities/user-business-role.entity';
-
+import { UserBusinessRole } from 'src/userBusinessRole/entities/user-business-role.entity';
 
 // Define the MysqlDatabaseProviderModule
 @Module({
@@ -26,9 +25,9 @@ import { UserBusinessRole } from 'src/user-business-role/entities/user-business-
         password: mysqlConfigService.password, // Get the password from MysqlConfigService
         database: mysqlConfigService.database, // Get the database name from MysqlConfigService
 
-        synchronize: false, 
+        synchronize: true, 
         // Specify the entities (schemas) for the MySQL database
-        entities: [UserBusinessRole,User,Business,Role],
+        entities: ['**/*.entity.ts'],
         migrations: [__dirname + '/../../src/migrations/*{.ts,.js}'],
         cli: {
           migrationsDir: 'src/migrations',

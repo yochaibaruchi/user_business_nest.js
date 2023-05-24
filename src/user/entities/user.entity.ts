@@ -7,60 +7,58 @@ import {
   BeforeInsert,
   BeforeUpdate,
   OneToMany,
+  PrimaryColumn,
 } from 'typeorm';
 import { MinLength } from 'class-validator';
-import * as bcrypt from 'bcrypt';
-import { Exclude } from 'class-transformer';
-import { UserBusinessRole } from 'src/user-business-role/entities/user-business-role.entity';
 
+import { UserBusinessRole } from '../../userBusinessRole/entities/user-business-role.entity';
+import { CreateUserDto } from '../dto/create-user.dto';
 @Entity('user')
 export class User {
-  @PrimaryGeneratedColumn({name : 'id'})
-  id: number;
+  @PrimaryColumn({ name: 'id' })
+  id: string;
 
-  @Column({ length: 255 ,name : 'first_name'})
-  firstName: string;
-
-  @Column({ length: 255, name: 'last_name' })
-  lastName: string;
+  @Column({ length: 255, name: 'full_name' })
+  name: string;
 
   @Column({ length: 255, unique: true })
   email: string;
 
   @BeforeInsert()
   @BeforeUpdate()
- private normalizeEmail() {
+  private normalizeEmail() {
     this.email = this.email.toLowerCase();
   }
 
-  @Exclude({toPlainOnly: true})
-  @Column({ length: 255 })
-  @MinLength(8)
-  password: string;
-
-  @Column({ length: 255 })
+  @Column({ length: 255, nullable: true })
   @MinLength(11)
-  phone: string;
+  phone_number: string;
 
-  @Column({ default: true , name: 'is_admin'})
-  isAdmin: boolean;
- @Exclude({toPlainOnly: true})
-  @Column({ default: null, type: 'varchar', length: 1024,name: 'refresh_token' })
-  refreshToken: string;
+  @Column({ default: false })
+  confirmEmail: boolean;
 
-  @CreateDateColumn({name : 'created_at'})
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn({name : 'updated_at'})
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-
-  @OneToMany(() => UserBusinessRole, (userBusinessRole) => userBusinessRole.user)
+  @OneToMany(
+    () => UserBusinessRole,
+    (userBusinessRole) => userBusinessRole.user,
+  )
   userBusinessRoles: UserBusinessRole[];
 
- 
-  @BeforeInsert()
- private  async  hashPassword() :Promise<void> {
-    this.password = await bcrypt.hash(this.password, 10);
+  // gets the full name and saves it as first and last.
+  static fromCreateUserDto(createUserDto: CreateUserDto): User {
+    const user = new User();
+
+    // Split the full name into first and last names
+    user.name = createUserDto.name;
+    user.email = createUserDto.email;
+    user.phone_number = createUserDto.phone_number;
+    user.id = createUserDto.id;
+    user.confirmEmail = createUserDto.confirmEmail || false;
+    return user;
   }
 }

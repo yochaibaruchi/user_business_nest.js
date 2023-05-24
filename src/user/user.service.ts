@@ -1,29 +1,45 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException  } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityNotFoundError, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from './entities/user.entity';
 import { ConflictException } from '@nestjs/common';
-
-import { validate } from 'class-validator';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserWithBusinessesResponse } from './dto/user-with-businesses-response.interface';
+import { UpdateUserAttributesDto } from 'src/cognito/dto/updateUserAttributes.dto';
+
 @Injectable()
 export class UserService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
-
+  /**
+   * Find all users.
+   * @returns A Promise that resolves to an array of User objects.
+   * @throws BadRequestException if there is an error during the process.
+   */
   async findAll(): Promise<User[]> {
     try {
       return await this.userRepository.find();
     } catch (error) {
-      throw new InternalServerErrorException('Failed to fetch all users.');
+      throw new BadRequestException('Failed to fetch all users.');
     }
   }
 
-  //find by id 
-  async findById(userId: number): Promise<User> {
+  /**
+   * Find a user by ID or throw an exception if not found.
+   * @param userId The ID of the user.
+   * @returns A Promise that resolves to the User object if found.
+   * @throws NotFoundException if the user is not found.
+   * @throws BadRequestException if there is an error during the process.
+   */
+  async findByIdOrFail(userId: string): Promise<User> {
     try {
       const user = await this.userRepository.findOneBy({ id: userId });
       if (!user) {
@@ -32,92 +48,172 @@ export class UserService {
       return user;
     } catch (error) {
       if (error instanceof NotFoundException) {
-        throw error;
+        throw new NotFoundException(error.message);
       } else {
-        throw new InternalServerErrorException('Failed to fetch user by id.');
+        throw new BadRequestException(error.message);
       }
     }
   }
-  
 
-  async register(createUserDto: CreateUserDto): Promise<Omit<User, 'password' |'refreshToken'>>  {
-    
+  /**
+   * Register a new user.
+   * @param createUserDto The DTO containing the details for the new user.
+   * @returns A Promise that resolves to the newly created User object.
+   * @throws ConflictException if the email is already in use by another user.
+   * @throws BadRequestException if there is an error during the process.
+   */
+  async register(createUserDto: CreateUserDto): Promise<User> {
+    const user = User.fromCreateUserDto(createUserDto);
+    console.log(user);
 
-    const validationErrors = await validate(createUserDto);
-    if (!validationErrors ) {
-      throw new BadRequestException(validationErrors.map((error) => Object.values(error.constraints)).flat().join(', '));
-    }
-    
-  
-    const user = new User();
-    user.firstName = createUserDto.firstName;
-    user.lastName = createUserDto.lastName;
-    user.email = createUserDto.email;
-    user.password = createUserDto.password;
-    user.phone = createUserDto.phone;
-    user.isAdmin = createUserDto.isAdmin;
-    
-  
     try {
       const newUser = await this.userRepository.save(user);
-      const { password,refreshToken, ...userWithoutPassword } = newUser;
-      return userWithoutPassword;
+
+      return newUser;
     } catch (error) {
+      console.log(error);
+
       if (error.code === 'ER_DUP_ENTRY') {
         throw new ConflictException('User with this email already exists.');
       }
-      throw error;
+      throw new BadRequestException(error.message);
     }
   }
-  
 
-  //UPDATE user can update any part of the user but cant update the password.
-  async updateUser(id: number, updateUserDto: UpdateUserDto): Promise<Omit<User, 'password' | 'refreshToken'>> {
-    //validate the updateUserDto object.
-    const validationErrors = await validate(updateUserDto);
-    if (!validationErrors ) {
-      throw new BadRequestException(validationErrors.map((error) => Object.values(error.constraints)).flat().join(', '));
-    }
+  /**
+   * Update a user's attributes in the database except password.
+   * @param id The ID of the user.
+   * @param updateUserAttributesDto The DTO containing the new attributes for the user.
+   * @returns A Promise that resolves to the updated User object.
+   * @throws NotFoundException if the user is not found.
+   * @throws ConflictException if the email is already in use by another user.
+   * @throws BadRequestException if there is an error during the process.
+   */
+  async updateUser(
+    id: string,
+    updateUserAttributesDto: UpdateUserAttributesDto,
+  ): Promise<User> {
+    console.log(id + 'service');
+
     // Find the user by id.
-    const user = await this.findById(id)
+    const user = await this.findUserByIdOrNull(id);
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found.`);
     }
     // Update the user's properties.
-    user.firstName = updateUserDto.firstName ?? user.firstName;
-    user.lastName = updateUserDto.lastName ?? user.lastName;
-    user.email = updateUserDto.email ?? user.email;
-    user.phone = updateUserDto.phone ?? user.phone;
-    user.isAdmin = updateUserDto.isAdmin ?? user.isAdmin;
-  
+    user.name = updateUserAttributesDto.name ?? user.name;
+
+    user.email = updateUserAttributesDto.email ?? user.email;
+    user.phone_number =
+      updateUserAttributesDto.phone_number ?? user.phone_number;
+
     // Save the updated user to the database.
-    try{
+    try {
       const updatedUser = await this.userRepository.save(user);
       // Return the updated user without the password field.
-      const { password,refreshToken, ...userWithoutPassword } = updatedUser;
-      return userWithoutPassword;
-    }catch(error){
+
+      return updatedUser;
+    } catch (error) {
       console.log(error);
-      
+
       if (error.code === 'ER_DUP_ENTRY') {
         throw new ConflictException('User with this email already exists.');
-      }else{
-        throw new InternalServerErrorException('Failed to update user.');
+      } else {
+        throw new BadRequestException(error.message);
       }
     }
-  
   }
-  
 
- /**
+  /**
    * Finds a user by their email address.
    *
    * @param email The user's email address.
    * @returns The user with the given email address, or undefined if no user is found.
    */
   async findByEmail(email: string): Promise<User | undefined> {
-    return this.userRepository.findOne({ where : {email}  });
+    return this.userRepository.findOne({ where: { email } });
   }
 
-  // Add more functions as needed
+  /**
+   * Fetch a user along with their associated businesses and roles.
+   * @param userId The ID of the user.
+   * @returns A Promise that resolves to a UserWithBusinessesResponse object,
+   * containing the user details along with their associated businesses and roles.
+   * @throws NotFoundException if the user is not found.
+   * @throws BadRequestException if there is an error during the process.
+   */
+  async getUserWithBusinessesAndRoles(
+    userId: string,
+  ): Promise<UserWithBusinessesResponse> {
+    try {
+      const user = await this.userRepository
+        .createQueryBuilder('user')
+        .select(['user.id', 'user.Name', 'user.email', 'user.phone_number'])
+        .leftJoinAndSelect('user.userBusinessRoles', 'userBusinessRoles')
+        .leftJoinAndSelect('userBusinessRoles.business', 'business')
+        .leftJoinAndSelect('userBusinessRoles.role', 'role')
+        .where('user.id = :userId', { userId })
+        .getOneOrFail();
+
+      // Map the user entity to the UserWithBusinessesResponse object
+      const response: UserWithBusinessesResponse = {
+        id: user.id,
+        fullName: user.name,
+        email: user.email,
+        phone: user.phone_number,
+        businessesWithRole: user.userBusinessRoles.map((userBusinessRole) => ({
+          businessId: userBusinessRole.business.businessId,
+          businessType: userBusinessRole.business.businessType,
+          location: userBusinessRole.business.location,
+          bankId: userBusinessRole.business.bankId,
+          roleId: userBusinessRole.role.roleId,
+          role: userBusinessRole.role.name,
+        })),
+      };
+
+      return response;
+    } catch (error) {
+      if (error instanceof EntityNotFoundError) {
+        throw new NotFoundException(error.message);
+      } else {
+        throw new BadRequestException(error.message);
+      }
+    }
+  }
+
+  /**
+   * Find a user by email and confirm their email.
+   * @param email The email of the user.
+   * @returns Promise<void>
+   * @throws NotFoundException if the user is not found.
+   * @throws BadRequestException if there is an error during the process.
+   */
+  async confirmUserEmail(email: string): Promise<void> {
+    try {
+      const result = await this.userRepository.update(
+        { email },
+        { confirmEmail: true },
+      );
+
+      // If no records were updated, it means that the user was not found
+      if (result.affected === 0) {
+        throw new NotFoundException(`User with email ${email} not found`);
+      }
+    } catch (error) {
+      // You can create custom exceptions or use built-in NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(error.message);
+      } else {
+        throw new BadRequestException(error.message);
+      }
+    }
+  }
+  /**
+   * Find a user by ID.
+   * @param userId The ID of the user.
+   * @returns The found user or null if not found.
+   */
+  async findUserByIdOrNull(userId: string): Promise<User | null> {
+    return await this.userRepository.findOneBy({ id: userId });
+  }
 }
