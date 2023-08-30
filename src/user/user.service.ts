@@ -1,6 +1,5 @@
 import {
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -9,15 +8,21 @@ import { EntityNotFoundError, Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User } from './entities/user.entity';
 import { ConflictException } from '@nestjs/common';
-import { UpdateUserDto } from './dto/update-user.dto';
 import { UserWithBusinessesResponse } from './dto/user-with-businesses-response.interface';
 import { UpdateUserAttributesDto } from 'src/cognito/dto/updateUserAttributes.dto';
-
+import { InvoiceService } from 'src/invoice/invoice.service';
+import { UserBusinessRoleIdsDto } from './dto/userBusinessRolesList.dto';
+import {
+  DefaultInvoice,
+  InvoiceList,
+  InvoiceResult,
+} from './dto/user-default-invoices.interface';
 @Injectable()
 export class UserService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private invoiceService: InvoiceService,
   ) {}
   /**
    * Find all users.
@@ -148,13 +153,18 @@ export class UserService {
     try {
       const user = await this.userRepository
         .createQueryBuilder('user')
-        .select(['user.id', 'user.Name', 'user.email', 'user.phone_number'])
-        .leftJoinAndSelect('user.userBusinessRoles', 'userBusinessRoles')
-        .leftJoinAndSelect('userBusinessRoles.business', 'business')
-        .leftJoinAndSelect('userBusinessRoles.role', 'role')
+        .select([
+          'user.id',
+          'user.full_name',
+          'user.email',
+          'user.phone_number',
+        ])
+        .innerJoinAndSelect('user.userBusinessRoles', 'userBusinessRoles')
+        .innerJoinAndSelect('userBusinessRoles.business', 'business')
+        .innerJoinAndSelect('business.invoices', 'invoices')
+        .innerJoinAndSelect('userBusinessRoles.role', 'role')
         .where('user.id = :userId', { userId })
         .getOneOrFail();
-
       // Map the user entity to the UserWithBusinessesResponse object
       const response: UserWithBusinessesResponse = {
         id: user.id,
@@ -215,5 +225,73 @@ export class UserService {
    */
   async findUserByIdOrNull(userId: string): Promise<User | null> {
     return await this.userRepository.findOneBy({ id: userId });
+  }
+
+  async getUserBusinessesAndRoleIds(
+    userId: string,
+  ): Promise<UserBusinessRoleIdsDto[]> {
+    try {
+      const list: UserBusinessRoleIdsDto[] = await this.userRepository
+        .createQueryBuilder('user')
+        .select([
+          'business.name as businessName',
+          'business.id as businessId',
+          'role.name as roleName',
+          'defaultBusiness.businessId as defaultId',
+        ])
+        .innerJoin('user.userBusinessRoles', 'userBusinessRoles')
+        .innerJoin('userBusinessRoles.business', 'business')
+        .innerJoin('userBusinessRoles.role', 'role')
+        .leftJoin('business.defaultBusiness', 'defaultBusiness')
+        .where(`user.id = '${userId}'`)
+        .getRawMany();
+
+      return list;
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async getUserDefaultInvoices(userId: string): Promise<InvoiceResult> {
+    try {
+      const list: DefaultInvoice[] = await this.userRepository
+        .createQueryBuilder('user')
+        .select([
+          'defaultBusiness.business_id as businessId',
+          'invoices.invoiceType',
+          'invoices.currency',
+          'invoices.sum',
+          'invoices.item',
+          'invoices.invoice_number as invoiceNumber',
+        ])
+        .innerJoin('user.defaultBusiness', 'defaultBusiness')
+        .innerJoin('defaultBusiness.business', 'business')
+        .leftJoin('business.invoices', 'invoices')
+        .where('user.id = :userId', { userId })
+        .getRawMany();
+
+      if (list.length > 0) {
+        if (list[0].invoiceNumber === null) {
+          return { businessId: list[0].businessId, invoices: [] };
+        }
+
+        return {
+          businessId: list[0].businessId,
+          invoices: list.map((x): InvoiceList => {
+            return {
+              invoiceNumber: x.invoiceNumber,
+              invoices_invoiceType: x.invoices_invoiceType,
+              invoices_sum: x.invoices_sum,
+              invoices_currency: x.invoices_currency,
+              invoices_item: x.invoices_item,
+            };
+          }),
+        };
+      }
+
+      return { businessId: null, invoices: [] };
+    } catch (error) {
+      console.log(error);
+    }
   }
 }

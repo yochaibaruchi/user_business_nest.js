@@ -1,8 +1,12 @@
 import { Request } from 'express';
-import { User } from 'src/user/entities/user.entity';
+import { TokenPayload } from 'google-auth-library';
 
 export interface CognitoJwt extends Request {
   user: JWTPayload;
+}
+
+export interface GoogleIdTokenPayload extends Request {
+  user: TokenPayload;
 }
 
 export interface JWTPayload {

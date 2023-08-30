@@ -1,29 +1,90 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseInterceptors,
+  FileTypeValidator,
+  MaxFileSizeValidator,
+  ParseFilePipe,
+  UploadedFiles,
+} from '@nestjs/common';
 import { InvoiceService } from './invoice.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import {
   ApiBadRequestResponse,
   ApiBody,
+  ApiConsumes,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiResponse,
   ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
 import { Invoice } from './entities/invoice.entity';
+import { InsertResult, ObjectLiteral } from 'typeorm';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { S3Service } from 'src/s3/s3.service';
+import { ParseInvoicesPipe } from './createInvoice.pipe';
+import { PutObjectCommandOutput } from '@aws-sdk/client-s3/dist-types/commands/PutObjectCommand';
 @ApiTags('invoices')
 @Controller('invoice')
 export class InvoiceController {
-  constructor(private readonly invoiceService: InvoiceService) {}
+  constructor(
+    private readonly invoiceService: InvoiceService,
+    private readonly s3Service: S3Service,
+  ) {}
 
   @Post()
+  @UseInterceptors(FilesInterceptor('file', 20))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create an invoice' })
   @ApiResponse({
     status: 201,
-    description: 'The invoice has been successfully created.',
+    description: 'The invoices has been successfully created.',
   })
-  @ApiBody({ type: CreateInvoiceDto })
-  create(@Body() createInvoiceDto: CreateInvoiceDto): Promise<number> {
+  @ApiBody({
+    description: 'Invoice creation data',
+    type: 'object',
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
+        createInvoiceDto: {
+          type: 'array',
+          items: {
+            $ref: getSchemaPath(CreateInvoiceDto),
+          },
+        },
+      },
+    },
+  })
+  async create(
+    @UploadedFiles(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: '.(png|jpeg|jpg|pdf)' }),
+          new MaxFileSizeValidator({ maxSize: 5000000 }),
+        ],
+      }),
+    )
+    files: Express.Multer.File[],
+    @Body('invoices', ParseInvoicesPipe) createInvoiceDto: CreateInvoiceDto[],
+  ): Promise<ObjectLiteral[]> {
+    const result = await this.s3Service.upload(files);
+    result.forEach((res, index) => {
+      if (res.status === 'rejected') {
+        createInvoiceDto[index].imagePath = null;
+      }
+    });
     return this.invoiceService.createInvoice(createInvoiceDto);
   }
 

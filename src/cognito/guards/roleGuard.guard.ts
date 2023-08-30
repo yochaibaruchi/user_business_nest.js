@@ -1,10 +1,9 @@
 import {
   Injectable,
   ExecutionContext,
-  UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Reflector } from '@nestjs/core';
 import { UserBusinessRoleService } from 'src/userBusinessRole/user-business-role.service';
 import { IsAdminDto } from 'src/userBusinessRole/dto/isUserBusinessAdmin.dto';
 
@@ -26,7 +25,9 @@ export class RolesGuard extends AuthGuard('cognitoJWT') {
 
     const userIsAdmin: boolean =
       await this.userBusinessRoleService.isAdminUserForBusiness(isAdminDto);
-    console.log(userIsAdmin);
+    if (userIsAdmin === false) {
+      throw new ForbiddenException();
+    }
 
     return userIsAdmin;
   }

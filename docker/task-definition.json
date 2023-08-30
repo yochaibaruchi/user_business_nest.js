@@ -1,0 +1,18 @@
+{
+	"containerDefinitions": [
+		{
+			"portMappings": [],
+			"cpu": 0,
+			"environment": [],
+			"memoryReservation": 300,
+			"volumesFrom": [],
+			"image": "%REPOSITORY_NODE_URI%:%TAG%",
+			"essential": true,
+			"links": [],
+			"name": "auth-node"
+		}
+	],
+	"family": "%FAMILY%",
+	"networkMode": "bridge",
+	"placementConstraints": []
+}

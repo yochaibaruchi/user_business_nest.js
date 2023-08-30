@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsNotEmpty,
   IsString,
@@ -47,4 +48,26 @@ export class AuthRegisterUserDto {
 
   @Validate(IsPasswordConfirmed)
   matchingPasswords: Boolean;
+}
+
+export class GoogleIdTokenDto {
+  @IsNotEmpty()
+  @IsString()
+  idToken: string;
+}
+
+export class AdminAuthRegisterUserDto {
+  @IsNotEmpty()
+  @IsString()
+  readonly name: string;
+  @IsNotEmpty()
+  @IsEmail()
+  readonly email: string;
+  @IsNotEmpty()
+  @IsString()
+  readonly password: string;
+
+  @IsNotEmpty()
+  @IsBoolean()
+  readonly emailVerified: boolean;
 }

@@ -6,8 +6,12 @@ import {
   Column,
   CreateDateColumn,
   OneToMany,
+  JoinColumn,
 } from 'typeorm';
 import { CreateBusinessDto } from '../dto/create-business.dto';
+import { BusinessTags } from 'src/tags/entities/tag.entity';
+import { Invoice } from 'src/invoice/entities/invoice.entity';
+import { DefaultBusiness } from 'src/default-business/entities/default-business.entity';
 
 @Entity('business')
 export class Business {
@@ -33,10 +37,16 @@ export class Business {
     () => UserBusinessRole,
     (userBusinessRole) => userBusinessRole.business,
   )
+  @JoinColumn({ name: 'id' })
   userBusinessRoles: UserBusinessRole[];
 
   @CreateDateColumn({ name: 'timestamp' })
   timestamp: Date;
+
+  @OneToMany(() => BusinessTags, (businessTags) => businessTags.business, {
+    cascade: true,
+  })
+  tags: BusinessTags[];
 
   static fromCreateBusinessDto(createBusinessDto: CreateBusinessDto): Business {
     const business = new Business();
@@ -47,4 +57,15 @@ export class Business {
     business.bankAccountId = createBusinessDto.bankAccountId;
     return business;
   }
+
+  @OneToMany(() => Invoice, (invoice) => invoice.business)
+  @JoinColumn({ name: 'id' })
+  invoices: Invoice[];
+
+  @OneToMany(
+    () => DefaultBusiness,
+    (defaultBusiness) => defaultBusiness.business,
+  )
+  @JoinColumn({ name: 'id' })
+  defaultBusiness: DefaultBusiness[];
 }

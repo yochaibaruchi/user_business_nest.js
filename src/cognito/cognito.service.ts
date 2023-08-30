@@ -1,15 +1,19 @@
+import CognitoErrors from './cognito.constants';
 import {
   BadRequestException,
   Inject,
   Injectable,
-  InternalServerErrorException,
   UnauthorizedException,
+  ConflictException,
   forwardRef,
 } from '@nestjs/common';
 import {
+  AdminCreateUserCommandInput,
+  AdminCreateUserCommandOutput,
   AdminRespondToAuthChallengeCommand,
   AdminRespondToAuthChallengeCommandInput,
   AdminRespondToAuthChallengeCommandOutput,
+  AdminSetUserPasswordCommandInput,
   AdminUpdateUserAttributesCommand,
   AdminUpdateUserAttributesCommandInput,
   AdminUserGlobalSignOutCommandInput,
@@ -21,16 +25,23 @@ import {
   ForgotPasswordCommandInput,
   GlobalSignOutCommandInput,
   GlobalSignOutCommandOutput,
+  InitiateAuthCommandInput,
   InitiateAuthCommandOutput,
+  InvalidEmailRoleAccessPolicyException,
   ResendConfirmationCodeCommand,
+  ResendConfirmationCodeCommandInput,
   SignUpCommandInput,
   SignUpCommandOutput,
+  UserNotFoundException,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { createHmac } from 'crypto';
-import { AuthRegisterUserDto } from './dto/AuthRegisterUser.dto';
+import { createHash, createHmac } from 'crypto';
+import {
+  AdminAuthRegisterUserDto,
+  AuthRegisterUserDto,
+} from './dto/AuthRegisterUser.dto';
 import * as dotenv from 'dotenv';
 import { ConfirmSignupDto } from './dto/ConfirmSignUp.dto';
-import { InitiateAuthDto } from './dto/initiateAuth.dto';
+import { InitiateAuthDto } from './dto/InitiateAuth.dto';
 import { AuthResetPasswordRequestDto } from './dto/AuthResetPasswordReq.dto';
 import { AuthResetPasswordConfirmDto } from './dto/AuthResetPasswordConfirm.dto';
 import { RefreshTokenDto } from './dto/refreshReq.dto';
@@ -41,6 +52,8 @@ import { UserService } from 'src/user/user.service';
 import * as jwt from 'jsonwebtoken';
 import * as jwksClient from 'jwks-rsa';
 import { CognitoIdToken } from './cognito.interfaces';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
+
 dotenv.config();
 
 @Injectable()
@@ -51,7 +64,7 @@ export class CognitoService {
     private readonly userService: UserService,
   ) {
     this.cognitoIdentityProvider = new CognitoIdentityProvider({
-      region: process.env.COGNITO_REGION,
+      region: process.env.AWS_REGION,
     });
   }
 
@@ -85,19 +98,24 @@ export class CognitoService {
 
     try {
       const result = await this.cognitoIdentityProvider.signUp(params);
+
       return result;
     } catch (error) {
       console.log('Signup failed. Error: ', error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(error.message);
       }
-      if (error.name === 'AliasExistsException') {
-        throw new BadRequestException(error.message);
+      if (error.name === CognitoErrors.AliasExistsException) {
+        throw new ConflictException(error.message);
       }
-      if (error.name === 'UsernameExistsException') {
-        throw new BadRequestException(error.message);
+      if (error.name === CognitoErrors.UsernameExistsException) {
+        throw new ConflictException(error.message);
       }
-      throw error;
+      if (error instanceof InvalidEmailRoleAccessPolicyException)
+        throw new InvalidEmailRoleAccessPolicyException({
+          message: 'bad email',
+          $metadata: error.$metadata,
+        });
     }
   }
 
@@ -107,8 +125,7 @@ export class CognitoService {
    *
    * @param confirmSignUpDto An object containing 'email' and 'confirmationCode' needed for confirming the sign up.
    * @returns A Promise that resolves when the sign up is confirmed.
-   * @throws BadRequestException for various types of Cognito-related exceptions such as 'AliasExistsException', 'CodeMismatchException', etc.
-   * @throws InternalServerErrorException if an internal error occurs.
+   * @throws BadRequestException for various types of Cognito-related exceptions such as CognitoErrors.AliasExistsException, 'CodeMismatchException', etc.
    */
 
   async confirmSignUp(confirmSignUpDto: ConfirmSignupDto): Promise<void> {
@@ -131,23 +148,22 @@ export class CognitoService {
       console.log('Error confirming email:', error);
 
       switch (error.name) {
-        case 'AliasExistsException':
-        case 'CodeMismatchException':
-        case 'ExpiredCodeException':
-        case 'ForbiddenException':
-        case 'InvalidLambdaResponseException':
-        case 'InvalidParameterException':
-        case 'LimitExceededException':
-        case 'NotAuthorizedException':
-        case 'ResourceNotFoundException':
-        case 'TooManyFailedAttemptsException':
-        case 'TooManyRequestsException':
-        case 'UnexpectedLambdaException':
-        case 'UserLambdaValidationException':
-        case 'UserNotFoundException':
+        case CognitoErrors.AliasExistsException:
+        case CognitoErrors.CodeMismatchException:
+        case CognitoErrors.ExpiredCodeException:
+        case CognitoErrors.ForbiddenException:
+        case CognitoErrors.InvalidLambdaResponseException:
+        case CognitoErrors.InvalidParameterException:
+        case CognitoErrors.LimitExceededException:
+        case CognitoErrors.NotAuthorizedException:
+        case CognitoErrors.ResourceNotFoundException:
+        case CognitoErrors.TooManyFailedAttemptsException:
+        case CognitoErrors.TooManyRequestsException:
+        case CognitoErrors.UnexpectedLambdaException:
+        case CognitoErrors.UserLambdaValidationException:
           throw new BadRequestException(error.message);
-        case 'InternalErrorException':
-          throw new InternalServerErrorException('An internal error occurred.');
+        case CognitoErrors.UserNotFoundException:
+          throw new UserNotFoundException(error.message);
         default:
           throw new BadRequestException(error.message);
       }
@@ -161,7 +177,7 @@ export class CognitoService {
    * @throws Error if there is an issue in the process.
    */
   async resendConfirmationCode(email: string): Promise<void> {
-    const params = {
+    const params: ResendConfirmationCodeCommandInput = {
       ClientId: process.env.COGNITO_CLIENT_ID,
       Username: email,
       SecretHash: this.hashSecret(
@@ -193,11 +209,10 @@ export class CognitoService {
   async signIn(
     initiateAuthDto: InitiateAuthDto,
   ): Promise<InitiateAuthCommandOutput> {
-    console.log(initiateAuthDto);
-    const params = {
+    const params: InitiateAuthCommandInput = {
       AuthFlow: 'USER_PASSWORD_AUTH',
       ClientId: process.env.COGNITO_CLIENT_ID,
-      UserPoolId: process.env.COGNITO_USER_POOL_ID,
+      // UserPoolId: process.env.COGNITO_USER_POOL_ID,
       AuthParameters: {
         USERNAME: initiateAuthDto.email,
         PASSWORD: initiateAuthDto.password,
@@ -211,11 +226,13 @@ export class CognitoService {
 
     try {
       const result = await this.cognitoIdentityProvider.initiateAuth(params);
-
       return result;
     } catch (error) {
       console.log('Login failed. Error: ', error);
-      if (error.name === 'InvalidParameterException') {
+      if (
+        CognitoErrors.BadRequestsSignInErros.includes(error.name) ||
+        error.message === CognitoErrors.PasswordAttemptsExceededMessage
+      ) {
         throw new BadRequestException(error.message);
       }
       throw new UnauthorizedException(error.message);
@@ -251,7 +268,7 @@ export class CognitoService {
       );
     } catch (error) {
       console.log('Error requesting password reset:', error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(
           'Invalid parameters provided for password reset request.',
         );
@@ -289,7 +306,7 @@ export class CognitoService {
     };
 
     try {
-      const response = await this.cognitoIdentityProvider.send(
+      await this.cognitoIdentityProvider.send(
         new ConfirmForgotPasswordCommand(params),
       );
 
@@ -300,11 +317,11 @@ export class CognitoService {
       await this.adminLogoutUser(user.id);
     } catch (error) {
       console.log('Error confirming password reset:', error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(
           'Invalid parameters provided for password reset confirmation.',
         );
-      } else if (error.name === 'ExpiredCodeException') {
+      } else if (error.name === CognitoErrors.ExpiredCodeException) {
         throw new UnauthorizedException(error.message);
       }
       throw new BadRequestException(
@@ -340,7 +357,10 @@ export class CognitoService {
       },
     };
     try {
-      const result = await this.cognitoIdentityProvider.initiateAuth(params);
+      const result: InitiateAuthCommandOutput =
+        await this.cognitoIdentityProvider.initiateAuth(params);
+      console.log(result.AuthenticationResult.AccessToken.length);
+
       const challenge = result.ChallengeName;
 
       if (challenge) {
@@ -351,9 +371,9 @@ export class CognitoService {
     } catch (error) {
       console.log('Login failed. Error: ', error);
 
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException('Invalid parameters.');
-      } else if (error.name === 'NotAuthorizedException') {
+      } else if (error.name === CognitoErrors.NotAuthorizedException) {
         throw new UnauthorizedException(
           'Your session has expired. Please log in again.',
         );
@@ -429,11 +449,11 @@ export class CognitoService {
       return result;
     } catch (error) {
       console.log('Error handling new password challenge:', error);
-      if (error.name === 'InvalidPasswordException') {
+      if (error.name === CognitoErrors.InvalidPasswordException) {
         throw new BadRequestException(
           'Invalid new password provided. Please ensure your password meets the required complexity rules.',
         );
-      } else if (error.name === 'NotAuthorizedException') {
+      } else if (error.name === CognitoErrors.NotAuthorizedException) {
         throw new UnauthorizedException(
           'The provided old password is incorrect.',
         );
@@ -517,11 +537,11 @@ export class CognitoService {
       return this.cognitoIdentityProvider.adminUserGlobalSignOut(params);
     } catch (error) {
       console.log('Error logging out user:', error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(
           'Invalid parameters provided for user logout.',
         );
-      } else if (error.name === 'NotAuthorizedException') {
+      } else if (error.name === CognitoErrors.NotAuthorizedException) {
         throw new UnauthorizedException(
           'User not authorized to perform this operation.',
         );
@@ -555,11 +575,11 @@ export class CognitoService {
       return await this.cognitoIdentityProvider.globalSignOut(param);
     } catch (error) {
       console.log(error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(
           'Invalid parameters provided for user logout.',
         );
-      } else if (error.name === 'NotAuthorizedException') {
+      } else if (error.name === CognitoErrors.NotAuthorizedException) {
         throw new UnauthorizedException(
           'User not authorized to perform this operation.',
         );
@@ -604,11 +624,11 @@ export class CognitoService {
       );
     } catch (error) {
       console.log('Error updating user attributes:', error);
-      if (error.name === 'InvalidParameterException') {
+      if (error.name === CognitoErrors.InvalidParameterException) {
         throw new BadRequestException(
           'Invalid parameters provided for updating user attributes.',
         );
-      } else if (error.name === 'NotAuthorizedException') {
+      } else if (error.name === CognitoErrors.NotAuthorizedException) {
         throw new UnauthorizedException(
           'User not authorized to perform this operation.',
         );
@@ -633,5 +653,131 @@ export class CognitoService {
       Name: key,
       Value: value,
     }));
+  }
+
+  async adminSignUpForgoogle(
+    adminAuthRegisterUserDto: AdminAuthRegisterUserDto,
+  ): Promise<InitiateAuthCommandOutput> {
+    const params: AdminCreateUserCommandInput = {
+      UserPoolId: process.env.COGNITO_USER_POOL_ID,
+      Username: adminAuthRegisterUserDto.email,
+      MessageAction: 'SUPPRESS',
+      UserAttributes: [
+        {
+          Name: 'name',
+          Value: adminAuthRegisterUserDto.name,
+        },
+        {
+          Name: 'email',
+          Value: adminAuthRegisterUserDto.email,
+        },
+        {
+          Name: 'email_verified',
+          Value: `${adminAuthRegisterUserDto.emailVerified}`,
+        },
+      ],
+    };
+
+    try {
+      const adminCreateUserCommandOutput: AdminCreateUserCommandOutput =
+        await this.cognitoIdentityProvider.adminCreateUser(params);
+
+      const attributes = adminCreateUserCommandOutput.User.Attributes;
+
+      const DBRegisterParams: CreateUserDto = {
+        id: attributes.find((attr) => attr.Name === 'sub').Value,
+        email: attributes.find((attr) => attr.Name === 'email').Value,
+        name: attributes.find((attr) => attr.Name === 'name').Value,
+        phone_number: '',
+        confirmEmail: true, // It seems like you don't have a phone number in the attributes, so this is left empty.
+      };
+
+      await this.userService.register(DBRegisterParams);
+
+      const emailHash = this.generateShortHash(adminAuthRegisterUserDto.email);
+      const passwordWithHash = adminAuthRegisterUserDto.password + emailHash;
+      // Set permanent password
+      const passwordParams: AdminSetUserPasswordCommandInput = {
+        UserPoolId: process.env.COGNITO_USER_POOL_ID,
+        Username: adminAuthRegisterUserDto.email,
+        Password: passwordWithHash + process.env.PASSWORD_SECRET,
+        Permanent: true,
+      };
+
+      await this.cognitoIdentityProvider.adminSetUserPassword(passwordParams);
+
+      return await this.adminSignInGoogle({
+        email: adminAuthRegisterUserDto.email,
+        password: adminAuthRegisterUserDto.password,
+      });
+    } catch (error) {
+      if (error.name === CognitoErrors.InvalidParameterException) {
+        throw new BadRequestException(error.message);
+      }
+      if (
+        error.name === CognitoErrors.UsernameExistsException ||
+        error.name === CognitoErrors.AliasExistsException
+      ) {
+        try {
+          return await this.adminSignInGoogle({
+            email: adminAuthRegisterUserDto.email,
+            password: adminAuthRegisterUserDto.password,
+          });
+        } catch (error) {
+          if (
+            error instanceof BadRequestException ||
+            error instanceof UnauthorizedException
+          ) {
+            const isUserExist = await this.userService.findByEmail(
+              adminAuthRegisterUserDto.email,
+            );
+            if (isUserExist) {
+              throw new ConflictException(
+                'a user alredy register with this email in a different provider',
+              );
+            } else {
+              throw error;
+            }
+          }
+        }
+      }
+      throw error;
+    }
+  }
+  async adminSignInGoogle(
+    initiateAuthDto: InitiateAuthDto,
+  ): Promise<InitiateAuthCommandOutput> {
+    const emailHash = this.generateShortHash(initiateAuthDto.email);
+    const passwordWithHash = initiateAuthDto.password + emailHash;
+    const params: InitiateAuthCommandInput = {
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: process.env.COGNITO_CLIENT_ID,
+      // UserPoolId: process.env.COGNITO_USER_POOL_ID,
+      AuthParameters: {
+        USERNAME: initiateAuthDto.email,
+        PASSWORD: passwordWithHash + process.env.PASSWORD_SECRET,
+        SECRET_HASH: this.hashSecret(
+          process.env.COGNITO_CLIENT_SECRET,
+          initiateAuthDto.email,
+          process.env.COGNITO_CLIENT_ID,
+        ),
+      },
+    };
+
+    try {
+      const result: InitiateAuthCommandOutput =
+        await this.cognitoIdentityProvider.initiateAuth(params);
+
+      return result;
+    } catch (error) {
+      if (error.name === CognitoErrors.InvalidParameterException) {
+        throw new BadRequestException(error.message);
+      }
+      throw new UnauthorizedException(error.message);
+    }
+  }
+  generateShortHash(email: string): string {
+    const hash = createHash('sha256').update(email).digest('hex');
+    return hash.substring(0, 8);
   }
 }

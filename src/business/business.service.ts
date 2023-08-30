@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserBusinessRoleService } from 'src/userBusinessRole/user-business-role.service';
 import { CreateUserBusinessRoleDto } from 'src/userBusinessRole/dto/create-user-business-role.dto';
+import { DefaultBusinessService } from 'src/default-business/default-business.service';
 
 @Injectable()
 export class BusinessService {
@@ -18,6 +19,7 @@ export class BusinessService {
     @InjectRepository(Business)
     private businessRepository: Repository<Business>,
     private readonly userBusinessRole: UserBusinessRoleService,
+    private readonly defaultBusiness: DefaultBusinessService,
   ) {}
   /**
    * Create a new business.
@@ -32,6 +34,7 @@ export class BusinessService {
     userId: string,
   ): Promise<Business> {
     const business = Business.fromCreateBusinessDto(createBusinessDto);
+
     try {
       const newBusiness = await this.businessRepository.save(business);
       // connection between the business, user and admin role.
@@ -42,7 +45,16 @@ export class BusinessService {
         businessId: newBusiness.businessId,
       };
 
+      const count = await this.userBusinessRole.CountUserBusinesses(userId);
+
       await this.userBusinessRole.create(userBusinessRoleObj);
+
+      if (count === 0) {
+        this.defaultBusiness.create({
+          businessId: newBusiness.businessId,
+          userId: userId,
+        });
+      }
 
       return newBusiness;
     } catch (error) {
@@ -69,7 +81,7 @@ export class BusinessService {
       return businesses;
     } catch (error) {
       if (error instanceof NotFoundException) {
-        throw error;
+        throw new NotFoundException();
       } else {
         throw new BadRequestException('Failed to fetch all businesses.');
       }

@@ -1,8 +1,14 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UserBusinessRoleService } from './user-business-role.service';
 import { CreateUserBusinessRoleDto } from './dto/create-user-business-role.dto';
-import { UserBusinessRole } from './entities/user-business-role.entity';
+import { CognitoAuthGuard } from 'src/cognito/guards/cognito.jwt.guard';
+import { CognitoJwt } from 'src/cognito/cognito.interfaces';
 
 @ApiTags('user-business-roles')
 @Controller('user-business-roles')
@@ -22,10 +28,6 @@ export class UserBusinessRoleController {
   @ApiResponse({
     status: 404,
     description: 'User, Business, or Role not found.',
-  })
-  @ApiResponse({
-    status: 500,
-    description: 'Failed to create the User-Business-Role relationship.',
   })
   create(
     @Body() createUserBusinessRoleDto: CreateUserBusinessRoleDto,

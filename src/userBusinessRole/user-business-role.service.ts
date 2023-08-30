@@ -45,7 +45,7 @@ export class UserBusinessRoleService {
           error.message,
           createUserBusinessRoleDto,
         );
-        throw new NotFoundException(message);
+        throw new BadRequestException(message);
       }
       throw new BadRequestException(
         'Failed to create UserBusinessRole: ' + error.message,
@@ -97,5 +97,12 @@ export class UserBusinessRoleService {
     } else {
       return 'Missing referenced entity.';
     }
+  }
+
+  async CountUserBusinesses(userId: string) {
+    return this.userBusinessRoleRepository
+      .createQueryBuilder('user_business_role')
+      .where('user_business_role.user_id = :user_id', { user_id: userId })
+      .getCount();
   }
 }

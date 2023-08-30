@@ -1,25 +1,43 @@
-import { Controller, Post, Body, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { CognitoService } from './cognito.service';
 import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiBody,
+  ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ConfirmSignupDto } from './dto/ConfirmSignUp.dto';
 import {
+  AdminInitiateAuthCommandOutput,
   AdminRespondToAuthChallengeCommandOutput,
   GlobalSignOutCommandOutput,
   InitiateAuthCommandOutput,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { InitiateAuthDto } from './dto/initiateAuth.dto';
+import { InitiateAuthDto } from './dto/InitiateAuth.dto';
 import { AuthResetPasswordConfirmDto } from './dto/AuthResetPasswordConfirm.dto';
 import { AuthResetPasswordRequestDto } from './dto/AuthResetPasswordReq.dto';
 import { NewPasswordRequiredDto } from './dto/newPasswordRequired.dto';
 import { RefreshTokenDto } from './dto/refreshReq.dto';
 import { GlobalSignOutDto } from './dto/globalSignOut.dto';
-
+import { GoogleTokenGuard } from './guards/google.idToken.guard';
+import { GoogleIdTokenPayload } from './cognito.interfaces';
+import {
+  AdminAuthRegisterUserDto,
+  GoogleIdTokenDto,
+} from './dto/AuthRegisterUser.dto';
+import { SignInResponseDto } from './dto/FirstSignIn.dto';
 @ApiTags(
   'cognito - cognito gets the access token in the body when needed, no need for guard.',
 )
@@ -40,7 +58,6 @@ export class CognitoController {
     },
   })
   @ApiOkResponse({ description: 'Email confirmation successful' })
-  @Post('confirm-signup')
   async confirmSignUp(
     @Body() confirmSignUpDto: ConfirmSignupDto,
   ): Promise<any> {
@@ -69,13 +86,13 @@ export class CognitoController {
     },
   })
   async resendConfirmationCode(@Body('email') email: string): Promise<void> {
-    return this.cognitoService.resendConfirmationCode(email);
+    await this.cognitoService.resendConfirmationCode(email);
   }
 
   @Post('signin')
   @ApiOperation({ summary: 'Sign in' })
   @ApiResponse({
-    status: 200,
+    status: 201,
     description: 'User successfully signed in, returns authentication data.',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
@@ -159,13 +176,64 @@ export class CognitoController {
     status: 200,
     description: 'User has been logged out successfully.',
   })
+  @HttpCode(200)
   @ApiResponse({ status: 400, description: 'Bad Request.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
-  @ApiResponse({ status: 503, description: 'Service Unavailable.' })
   async logoutUser(
     @Body() accessToken: GlobalSignOutDto,
   ): Promise<GlobalSignOutCommandOutput> {
     return this.cognitoService.logoutUser(accessToken);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(GoogleTokenGuard)
+  @Post('sign-in-with-google')
+  @ApiOperation({
+    summary: 'Create a user with Google ID token',
+    description:
+      'This endpoint allows you to create a user using Google ID token. It also authenticates the user server-side and returns a Cognito session.',
+  })
+  @ApiBody({ type: GoogleIdTokenDto })
+  @ApiCreatedResponse({
+    description: 'The user has been successfully created and authenticated.',
+  })
+  @ApiBadRequestResponse({
+    description: 'Bad Request. Invalid parameters.',
+  })
+  @ApiUnauthorizedResponse({
+    description:
+      'Unauthorized. Invalid Google ID token or Cognito credentials.',
+  })
+  async createUserWithGoogleToken(
+    @Body() googleIdTokenDto: GoogleIdTokenDto,
+    @Req() req: GoogleIdTokenPayload,
+  ): Promise<AdminInitiateAuthCommandOutput> {
+    const signUpParams: AdminAuthRegisterUserDto = {
+      name: req.user.name,
+      email: req.user.email,
+      password: req.user.sub,
+      emailVerified: req.user.email_verified,
+    };
+
+    return await this.cognitoService.adminSignUpForgoogle(signUpParams);
+  }
+
+  @Post('first_signin')
+  @ApiOperation({ summary: 'first Sign in' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'User successfully signed in, returns authentication data not include access token.',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized.' })
+  async firstSignIn(
+    @Body() authLoginDto: InitiateAuthDto,
+  ): Promise<SignInResponseDto> {
+    const authResult = await this.cognitoService.signIn(authLoginDto);
+    return {
+      refreshToken: authResult.AuthenticationResult.RefreshToken,
+      idToken: authResult.AuthenticationResult.IdToken,
+    };
   }
 }

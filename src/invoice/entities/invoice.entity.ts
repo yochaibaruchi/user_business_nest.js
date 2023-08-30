@@ -5,12 +5,25 @@ import {
   Column,
   JoinColumn,
   ManyToOne,
+  Index,
 } from 'typeorm';
 
+export enum InvoiceType {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE',
+}
+//add index on date and add insertDate.
+@Index('invoice_number', ['invoiceNumber'])
 @Entity('invoices')
 export class Invoice {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({
+    type: 'enum',
+    enum: InvoiceType,
+  })
+  invoiceType: InvoiceType;
 
   @ManyToOne(() => Business, { onDelete: 'CASCADE', nullable: false })
   @JoinColumn({
@@ -20,30 +33,42 @@ export class Invoice {
   })
   business: Business;
 
-  @Column({
-    generatedType: 'STORED',
-    asExpression: "JSON_UNQUOTE(JSON_EXTRACT(data, '$.invoiceNumber'))",
-  })
+  @Column({ name: 'invoice_number' })
   invoiceNumber: string;
 
-  @Column({
-    generatedType: 'STORED',
-    asExpression: "JSON_UNQUOTE(JSON_EXTRACT(data, '$.amount'))",
-  })
-  amount: string;
+  @Column({ name: 'client_name' })
+  clientName: String;
 
   @Column({
-    generatedType: 'STORED',
-    asExpression: "JSON_UNQUOTE(JSON_EXTRACT(data, '$.invoiceDate'))",
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
   })
-  invoiceDate: Date;
+  sum: number;
+
+  @Column({ name: 'currency' })
+  currency: string;
 
   @Column({
-    generatedType: 'STORED',
-    asExpression: "JSON_UNQUOTE(JSON_EXTRACT(data, '$.dueDate'))",
+    name: 'issue_date',
   })
-  dueDate: Date;
+  issueDate: Date;
 
-  @Column('json')
-  data: object;
+  @Column({
+    name: 'email_adress',
+    nullable: true,
+  })
+  email: string;
+
+  @Column({
+    name: 'phone_number',
+    nullable: true,
+  })
+  phoneNumber: string;
+
+  @Column({ name: 'item' })
+  item: string;
+
+  @Column({ name: 'image_path', nullable: true })
+  imagePath: string;
 }

@@ -3,11 +3,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule, TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import { MysqlConfigModule } from '../../../config/database/mysql/config.module';
 import { MysqlConfigService } from '../../../config/database/mysql/config.service';
-import { User } from 'src/user/entities/user.entity';
-import { Role } from 'src/role/entities/role.entity';
-import { Business } from 'src/business/entities/business.entity';
-import { UserBusinessRole } from 'src/userBusinessRole/entities/user-business-role.entity';
-
 // Define the MysqlDatabaseProviderModule
 @Module({
   imports: [
@@ -25,17 +20,16 @@ import { UserBusinessRole } from 'src/userBusinessRole/entities/user-business-ro
         password: mysqlConfigService.password, // Get the password from MysqlConfigService
         database: mysqlConfigService.database, // Get the database name from MysqlConfigService
 
-        synchronize: true, 
+        synchronize: true,
         // Specify the entities (schemas) for the MySQL database
         entities: ['**/*.entity.ts'],
         migrations: [__dirname + '/../../src/migrations/*{.ts,.js}'],
         cli: {
           migrationsDir: 'src/migrations',
         },
-        migrationsRun : true,
+        migrationsRun: true,
         autoLoadEntities: true,
-        logging : true,
-     
+        logging: true,
       }),
 
       // Inject MysqlConfigService as a dependency for the factory function

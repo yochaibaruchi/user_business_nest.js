@@ -1,7 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { MysqlConfigService } from './config.service';
 import * as dotenv from 'dotenv';
-import { cwd } from 'process';
 import { DataSource } from 'typeorm';
 import { User } from 'src/user/entities/user.entity';
 import { Business } from 'src/business/entities/business.entity';

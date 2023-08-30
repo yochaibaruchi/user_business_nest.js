@@ -9,7 +9,6 @@ import {
   BadRequestException,
   UseGuards,
   Req,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { User } from './entities/user.entity';
@@ -28,7 +27,7 @@ import { AuthRegisterUserDto } from 'src/cognito/dto/AuthRegisterUser.dto';
 import { CognitoService } from 'src/cognito/cognito.service';
 import { UpdateUserAttributesDto } from 'src/cognito/dto/updateUserAttributes.dto';
 import { CognitoJwt } from 'src/cognito/cognito.interfaces';
-import { CognitoIdTokenDto } from './dto/syncSocialSignUps.dto';
+import { UserBusinessRoleIdsDto } from './dto/userBusinessRolesList.dto';
 
 @ApiTags('user')
 @Controller('user')
@@ -46,20 +45,13 @@ export class UserController {
   //SWAGGER
   @ApiOperation({ summary: 'Get all users' })
   @ApiResponse({ status: 200, description: 'Returns an array of users.' })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
+  @ApiResponse({
+    status: 400,
+    description: 'An error occurred while fetching all users.',
+  })
   //SWAGGER
   async findAll(): Promise<User[]> {
-    try {
-      return await this.userService.findAll();
-    } catch (error) {
-      if (error instanceof InternalServerErrorException) {
-        throw new InternalServerErrorException(error.message);
-      } else {
-        throw new BadRequestException(
-          'An error occurred while fetching all users.',
-        );
-      }
-    }
+    return await this.userService.findAll();
   }
 
   @ApiBearerAuth()
@@ -72,20 +64,9 @@ export class UserController {
     description: 'Returns the user with the given ID.',
   })
   @ApiResponse({ status: 404, description: 'User not found.' })
-  @ApiResponse({ status: 500, description: 'Internal server error.' })
   //SWAGGER
   async findOne(@Req() req: CognitoJwt): Promise<User> {
-    try {
-      return await this.userService.findByIdOrFail(req.user.sub);
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw new NotFoundException(error.message);
-      } else {
-        throw new BadRequestException(
-          'An error occurred while fetching the user by id.',
-        );
-      }
-    }
+    return await this.userService.findByIdOrFail(req.user.sub);
   }
 
   //CREATE user rout
@@ -107,27 +88,16 @@ export class UserController {
   async create(
     @Body() authRegisterUserDto: AuthRegisterUserDto,
   ): Promise<User> {
-    try {
-      const { UserSub } = await this.cognitoService.signUp(authRegisterUserDto);
+    const { UserSub } = await this.cognitoService.signUp(authRegisterUserDto);
 
-      const params: CreateUserDto = {
-        id: UserSub,
-        email: authRegisterUserDto.email,
-        name: authRegisterUserDto.name,
-        phone_number: '',
-      };
+    const params: CreateUserDto = {
+      id: UserSub,
+      email: authRegisterUserDto.email,
+      name: authRegisterUserDto.name,
+      phone_number: '',
+    };
 
-      return await this.userService.register(params);
-    } catch (error) {
-      console.error('Error during registration:', error);
-      if (error instanceof ConflictException) {
-        throw error;
-      } else {
-        throw new BadRequestException(
-          'An error occurred while registering the user.',
-        );
-      }
-    }
+    return await this.userService.register(params);
   }
 
   @ApiBearerAuth()
@@ -144,7 +114,6 @@ export class UserController {
   })
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiResponse({ status: 500, description: 'Internal server error' })
   //SWAGGER
   async updateUser(
     @Req() req: CognitoJwt,
@@ -182,26 +151,24 @@ export class UserController {
   @ApiOperation({ summary: 'Get user with businesses and roles' })
   @ApiResponse({
     status: 200,
-    description: 'User with businesses and roles',
+    description: 'User with businesses and roles ids',
+    isArray: true,
     schema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string' },
-        fullName: { type: 'string' },
-        email: { type: 'string' },
-        phone: { type: 'string' },
-        businessesWithRole: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              businessId: { type: 'number' },
-              businessType: { type: 'string' },
-              location: { type: 'string' },
-              bankId: { type: 'number' },
-              roleId: { type: 'number' },
-              role: { type: 'string' },
-            },
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          role_name: {
+            type: 'string',
+            example: 'admin',
+          },
+          name: {
+            type: 'string',
+            example: 'the shit show',
+          },
+          id: {
+            type: 'number',
+            example: 8,
           },
         },
       },
@@ -211,32 +178,7 @@ export class UserController {
   @ApiResponse({ status: 400, description: 'Bad Request ' })
   async getUserWithBusinessesAndRoles(
     @Req() req: CognitoJwt,
-  ): Promise<UserWithBusinessesResponse> {
-    return this.userService.getUserWithBusinessesAndRoles(req.user.sub);
-  }
-
-  @ApiBearerAuth()
-  @UseGuards(CognitoAuthGuard)
-  @Post('sync-social-signups')
-  async syncSocialSignUps(
-    @Body() cognitoIdTokenDto: CognitoIdTokenDto,
-    @Req() req: CognitoJwt,
-  ) {
-    const user = await this.userService.findUserByIdOrNull(req.user.sub);
-    if (!user) {
-      const decodedToken = await this.cognitoService.decodeAndVerifyIdToken(
-        cognitoIdTokenDto.token,
-      );
-      const params: CreateUserDto = {
-        id: decodedToken.sub,
-        email: decodedToken.email,
-        name: decodedToken.name,
-        phone_number: '',
-        confirmEmail: true,
-      };
-
-      await this.userService.register(params);
-    }
-    return { message: 'User sync completed' };
+  ): Promise<UserBusinessRoleIdsDto[]> {
+    return this.userService.getUserBusinessesAndRoleIds(req.user.sub);
   }
 }

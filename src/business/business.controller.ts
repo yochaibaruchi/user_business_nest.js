@@ -73,7 +73,6 @@ export class BusinessController {
     type: Business,
   })
   @ApiResponse({ status: 404, description: 'Business not found' })
-  @ApiResponse({ status: 500, description: 'Internal server error' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.businessService.findById(id);
   }

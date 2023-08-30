@@ -1,6 +1,5 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -8,11 +7,12 @@ import {
   BeforeUpdate,
   OneToMany,
   PrimaryColumn,
+  OneToOne,
 } from 'typeorm';
 import { MinLength } from 'class-validator';
-
 import { UserBusinessRole } from '../../userBusinessRole/entities/user-business-role.entity';
 import { CreateUserDto } from '../dto/create-user.dto';
+import { DefaultBusiness } from 'src/default-business/entities/default-business.entity';
 @Entity('user')
 export class User {
   @PrimaryColumn({ name: 'id' })
@@ -61,4 +61,7 @@ export class User {
     user.confirmEmail = createUserDto.confirmEmail || false;
     return user;
   }
+
+  @OneToOne(() => DefaultBusiness, (defaultbusiness) => defaultbusiness.user)
+  defaultBusiness: DefaultBusiness;
 }

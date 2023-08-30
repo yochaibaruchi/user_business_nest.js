@@ -7,7 +7,12 @@ import {
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { Invoice } from './entities/invoice.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityNotFoundError, Repository } from 'typeorm';
+import {
+  EntityNotFoundError,
+  InsertResult,
+  ObjectLiteral,
+  Repository,
+} from 'typeorm';
 
 @Injectable()
 export class InvoiceService {
@@ -16,30 +21,30 @@ export class InvoiceService {
     private invoiceRepository: Repository<Invoice>,
   ) {}
 
-  async createInvoice(createInvoiceDto: CreateInvoiceDto): Promise<number> {
+  async createInvoice(
+    createInvoiceDto: CreateInvoiceDto[],
+  ): Promise<ObjectLiteral[]> {
+    const insertInput = createInvoiceDto.map(({ businessId, ...rest }) => ({
+      ...rest,
+      business: { businessId },
+    }));
+
     try {
       const result = await this.invoiceRepository
         .createQueryBuilder()
         .insert()
         .into(Invoice)
-        .values({
-          data: createInvoiceDto.data,
-          business: {
-            businessId: createInvoiceDto.businessId,
-          },
-        })
+        .values(insertInput)
         .execute();
 
-      return result.raw.insertId;
+      return result.generatedMaps;
     } catch (error) {
       if (error.code === 'ER_DUP_ENTRY') {
         throw new ConflictException(
           'An invoice with the same invoice number already exists.',
         );
       } else if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        throw new NotFoundException(
-          `Business with id ${createInvoiceDto.businessId} not found.`,
-        );
+        throw new NotFoundException(`Business not found.`);
       }
       throw new BadRequestException(
         'Failed to create invoice: ' + error.message,
@@ -72,11 +77,8 @@ export class InvoiceService {
       const invoices: Invoice[] = await this.invoiceRepository.find({
         where: { business: { businessId } },
       });
-
       return invoices;
     } catch (error) {
-      console.log(error);
-
       throw new BadRequestException(
         'Failed to get invoices by business id: ' + error.message,
       );
@@ -94,4 +96,27 @@ export class InvoiceService {
   // remove(id: number) {
   //   return `This action removes a #${id} invoice`;
   // }
+
+  async getUserDefaultInvoices(userId: string) {
+    try {
+      const invoices = await this.invoiceRepository
+        .createQueryBuilder('invoices')
+        .select([
+          'business.id as businessId',
+          'invoices.invoiceType',
+          'invoices.currency',
+          'invoices.sum',
+          'invoices.item',
+        ])
+        .leftJoin('invoices.business', 'business')
+        .innerJoin('business.defaultBusiness', 'defaultBusiness')
+        .where('defaultBusiness.userId = :userId', { userId })
+        .getRawMany();
+      return invoices;
+    } catch (error) {
+      throw new BadRequestException(
+        'Failed to get default invoices by user id: ' + error.message,
+      );
+    }
+  }
 }
